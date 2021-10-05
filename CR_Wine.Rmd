@@ -1,0 +1,287 @@
+---
+title: "Projet tuteuré - Analyse de données œnologiques"
+author: "Baptiste Rousseau"
+date: "05/10/2021"
+runtime: shiny
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    number_sections: true
+---
+
+<style type="text/css">
+  body{
+  font-family: Times New Roman;
+  font-size: 12pt;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning=FALSE, eval=TRUE)
+
+library(shiny)
+library(shinythemes)
+library(shinyWidgets)
+library(ggplot2)
+library(ordinal)
+library(sure)
+library(ade4)
+library(adegraphics)
+```
+
+# Introduction
+
+Cette étude s'interessera au jeu de données du [UCI Machine Learning Repository](https://archive.ics.uci.edu/ml/datasets/wine+quality). Ce jeu de données est décomposé en deux fichier, vins rouges et vins blancs. Il contient 11 variables physicochimiques ainsi qu'une variable dépendante, la qualité du vin. Nous nous interesserons ici à la relations entre ces paramètres.
+
+Les paramètres physicochimiques suffisent-ils à expliquer la qualité du vin ?
+
+# Statistiques descriptives
+
+## Les variables indépendantes
+
+__acidité fixe et volatile__ : Les acides ont un impact sur le goût d'un vin, en agissant sur son acidité et son aigreur. Les acides fixes présents dans les vins sont majoritairement les acides tartariques, maliques, citriques et succiniques ([waterhouse](https://waterhouse.ucdavis.edu/whats-in-wine/fixed-acidity)). Trop peu d'acides fixes pour donner l'impression d'un vin "plat". L'acidité volatile reflète, elle, la quantité d'acide acétique dans le vin. Une trop grande concentration peut mener à un goût déplaisant.
+
+__acide citrique__ : Le plus important des acides fixes. Reflète souvent l'acidité du raisin utilisé.
+
+__sucre résiduel__ : acteur principal de la douceur du vin.
+
+__chlorides__ : La concentration est un relet du terroir du vin. Ils sont présent sous forme de sels.
+
+__dioxide de soufre__ : Peut exister sous forme liée ou libre. Une trop grande quantité aura un impact sur la santé.
+
+__densité__ : La densité est un reflet de la quantité d'alcool lors de la fermentation, elle diminue tout au long du processus. Cela aura un impact sur le goût du vin, notamment de son onctuosité.
+
+__pH__ : Mesure de l'acidité du vin, occile entre 3 et 4. Les vins plus acides paraîtront plus frais et rond.
+
+__sulfites__ : Sels du dioxide de soufre, ils sont utilisés pour la conservation du vin. Ils auront eux aussi un impact sur la santé à trop haute concentration.
+
+__teneur en alcool__ : Le pourcentage d'alcool du vin, directement lié au taux de sucre du raisin utilisé. Les alcools principaux sont l'alcool éthylique et le glycérol.
+
+## La variable dépendante
+
+__qualité__ : Un groupe d'œnologistes a gouté les différents vins et leur ont attribué une note entre 0 (très mauvais) et 10 (très bon).
+
+# Visualisation des données
+```{r}
+red_wines <- read.csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv", sep = ";")
+white_wines <- read.csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv", sep = ";")
+
+all_wines <- rbind(data.frame(append(red_wines, c(wine.type = 'red'), after = 0)),
+                  data.frame(append(white_wines, c(wine.type = 'white'), after = 0)))
+```
+
+```{r}
+ui <- fluidPage(theme = shinytheme("yeti"),
+                sidebarPanel(
+                  selectInput("display",
+                              label = "Graphique",
+                              choices = c("histogramme", "boxplot"),
+                              selected = "histogramme"
+                              ),
+                  selectInput("dataset",
+                              label = "Jeu de donnee",
+                              choices = c("tous", "vins rouges", "vins blancs"),
+                              selected = "all wines"
+                              ),
+                  conditionalPanel(condition = "input.dataset == 'tous'",
+                                   checkboxInput("separate", "Separer les vins", TRUE)
+                                   ),
+                  selectInput("parameter",
+                              label = "Parametre",
+                              choices = names(red_wines),
+                              selected = "fixed.acidity"
+                              )
+                ),
+                mainPanel(plotOutput("plot")),
+                fluidRow(column(11, align="center", tableOutput("table1"))),
+                fluidRow(column(11, align="center", tableOutput("table2")))
+)
+```
+
+```{r}
+server <- function(input, output, session) {
+  datasetInput <- reactive({
+    if (input$dataset == "tous"){
+      dataset <- all_wines
+    }
+    else if (input$dataset == "vins rouges"){
+      dataset <- red_wines
+    }
+    else if (input$dataset == "vins blancs"){
+      dataset <- white_wines
+    }
+    return(dataset)
+  })
+  
+  displayInput <- reactive({
+    if (input$display == "histogramme"){
+      toplot <- ggplot(datasetInput()) +
+                       aes_string(x = input$parameter) +
+                       geom_histogram(color = "black", fill = "grey", bins = 40L) +
+                       theme_bw() +
+                       if (input$dataset == "tous" & input$separate == TRUE){
+                         facet_wrap(~ wine.type, scales = "free")
+                       }
+    }
+    else if (input$display == "boxplot"){
+      toplot <- ggplot(datasetInput()) +
+                       aes_string(x = input$parameter) +
+                       geom_boxplot(color = "black", fill = "grey") +
+                       theme_bw() +
+                       if (input$dataset == "tous" & input$separate == TRUE){
+                         facet_wrap(~ wine.type, scales = "free")
+                       }
+    }
+    return(toplot)
+  })
+  output$plot <- renderPlot(displayInput())
+
+  summaryInput <- reactive({
+    if (input$dataset == "tous"){
+      df <- datasetInput()[-1]
+    }else{
+      df <- datasetInput()
+    }
+    summary_df <- data.frame(matrix(NA, nrow = 4, ncol = length(df)))
+    rownames(summary_df) <- c("moyenne", "1er quartile", "3eme quartile", "ecart type")
+    colnames(summary_df) <- names(df)
+    for (column in seq(length(df))){
+      summary_df[,column] <- c(mean(df[,column]),
+                               quantile(df[,column], .25),
+                               quantile(df[,column], .75),
+                               sd(df[,column]))
+    }
+    return (summary_df)
+  })
+  output$table1 <- renderTable({summaryInput()[0:5]}, rownames = TRUE)
+  output$table2 <- renderTable({summaryInput()[6:12]})
+}
+```
+
+```{r}
+shinyApp(ui, server, options = list(height = 750, width = 900))
+```
+
+# Statistiques analytiques
+
+## Régression
+
+Nous effectuerons ici une régression logistique ordinale. Notre variable dépendante étant catégoriale nous préférons la régression logistique à la régression linéaire. Ensuite la qualité du vin est apparentée à une variable ordinale même si numéraire.
+
+```{r echo=TRUE}
+qual_regr <- clm(as.factor(quality) ~ fixed.acidity + volatile.acidity + citric.acid + residual.sugar + chlorides + free.sulfur.dioxide + total.sulfur.dioxide + density + pH + sulphates + alcohol, data=all_wines)
+summary(qual_regr)
+```
+
+On peut remarquer que deux coefficients ne sont pas significatifs. Les z-values de l'acide citrique et des chlorides ne sont pas supérieure à la valeur théorique déterminée, il conviendra donc les enlever de la régression.
+
+```{r echo=TRUE}
+qual_regr <- clm(as.factor(quality) ~ fixed.acidity + volatile.acidity + residual.sugar + free.sulfur.dioxide + total.sulfur.dioxide + density + pH + sulphates + alcohol, data=all_wines)
+```
+
+Avant de continuer il convient aussi de vérifier l'homogénéité des résidus, qui pourrait nous indiquer un non respect d'une des [conditions](https://blog.uwgb.edu/bansalg/statistics-data-analytics/linear-regression/what-are-the-four-assumptions-of-linear-regression/) (indépendance, homoscédasticité et normalité).
+
+```{r echo=TRUE}
+plot(resids(qual_regr), main="Résidus")
+abline(h=0,col="red")
+```
+
+Tout semble correct, nous pouvons donc passer à l'analyse des coefficients.
+
+```{r}
+qual_regr$beta
+```
+
+Deux informations sont ici importantes. Les signes des coefficients et leur magnitudes. Le signe indique le sens de l'effet de cet paramètre sur la variable dépendante. Le coefficient de la teneur en alcool est positif, cela signifie qu'une augmentation de cette acidité aura tendance à augmenter la qualité perçue d'un vin. A l'inverse, le coefficient de la densité est négatif, augmenter la densité aura donc tendance à diminuer la qualité perçue d'un vin.
+
+La magnitude est l'intensité de l'effet du paramètre sur la variable dépendante. Si l'on prend les coefficents en valeur absolues des deux varaiables précédente on obtient $7.21\cdot 10^{-1}$ pour la teneur en alcool et $1.57\cdot 10^{2}$ pour la densité. La densité aura donc un effet plus important sur la qualité d'un vin que la teneur en alcool.
+
+En conclusion, l'acidité fixe, la teneur en alcool, la concentration en sulfites améliorerons la qualité perçue d'un vin. A l'inverse, le dioxide de soufre et l'acidité volatile diminuerons la qualité perçue du vin.
+
+Cependant la qualité d'un vin est un paramètre très subjectif, les notes attribuées sont alors propres aux œnologistes ayant oarticipé à l'étude. Ainsi  l'on aurait pu obtenir des résultats très différents en ayant quêté des œnologistes différents. De plus la fabrication du vin et l'élevage de la vigne est un processus très complexe, des vins ayant des compositions en ces paramètre physicochimiques proches pourront avoir des goûts différents et ainsi être notés différemment.
+
+## ACP
+
+Nous avons vu précédemment l'influences de nos paramètres sur notre varaiable dépendante, la qualité. Cependant il existe aussi des liens entres ces paramètres, c'est ce qu'on appelle de la multicolinéarité. Pour visualiser simplement ces liens nous effectueront une acp.
+
+```{r echo=TRUE}
+pcaAll <- dudi.pca(all_wines[-c(1,13)], scannf = FALSE, nf = 2)
+inertia.dudi(pcaAll)
+```
+
+Ici nous avons choisit un nombre arbitraire d'axes de 2. Afin d'affiner ce choix nous nous pencherons sur l'inertie. Afin de choisir quel axes garderons nous utiliseront le critère de Kaiser selon lequel nous conserverons uniquement les axes dont la valeur propre est supérieure à 1. En effet, une valeur propre inférieure à 1 indique que l'axe résume moins d'une variable, il ne s'agit donc pas d'un résumé. En appliquant ces critère nous choisirons donc de garder les trois premiers axes.
+
+```{r echo=TRUE}
+pcaAll <- dudi.pca(all_wines[-c(1,13)], scannf = FALSE, nf = 3)
+s.corcircle(pcaAll$co)
+```
+
+Pour analyser ce graphique nous regarderons la relations entre les différents vecteurs et les axes. Plus un vecteur est proche d'un axe et plus il est corrélé avec lui et plus sa norme est grande (plus il est éloigné de l'origine) plus il est inscrit dans l'espace factioriel et donc que son analyse sera fiable.
+
+De même nous pouvons comparer les vecteurs entres eux, leur proximité pouvant signifier une correlation entre eux. Nous pouvons voir que les vecteurs du pH et de l'acide citrique ont la même direction mais des sens opposé, il en va de même pour les vecteurs de la densité et de la teneur en alcool (qui ont eux des directions différentes mais néanmoins similaires.). Cela signifierais donc que ces variables sont inversement corrélées.
+
+Nous pouvons vérifier cette hypothèse grâce à un test de corrélation.
+H0: Pas de corrélation entre les deux variables : $\rho = 0$
+HA: Corrélation entre les deux variables : $\rho \neq 0$
+```{r echo=TRUE}
+cor.test(all_wines$citric.acid, all_wines$pH)
+cor.test(all_wines$density, all_wines$alcohol)
+```
+
+Les deux p-values obtenues sont bien inférieures à notre niveau de signification $\alpha = 0.05$, nous rejetons H0 et observons donc bien une corrélation entre ces variables. Nous pouvons ensuite voir que les coefficients de corrélation sont bien négatifs, validant la corrélation négative observée plus tôt.
+
+Nous pouvons donner un sens biologique à cette corrélation. Une augmentation de la concentration en acide citrique augmente l'acidité du milieu, et cette augmentation d'acidité se traduit par une diminution du pH, nous avons donc bien une corrélation négative. En revanche, la correlation entre l'acide citrique et le pH nous semblait précédemment forte selon les résultats de l'ACP mais nous n'obtenons un corréficient de corrélation que de $-0.3298$.Là aussi nous pouvons mettre en relief ce résultat, l'acide citrique n'est pas le seul facteur influençant le pH, parmis les autres variables nous avons aussi l'acidité fixe.
+
+Il en va de même pour la relation entre densité et teneur en alcool. L'alcool majoritairement présent dans le vin est l'acool éthylique, ayant une masse volumique de $0,789g/m^3$. Une augmentation de la teneur en alcool va donc diminuer la densité. Nous avons alors entre ces variables un coefficient de corrélation de $-0.6867$.
+
+Enfin si nous revenons sur les résultats de l'ACP et plus spécifiquement le résultat graphique nous pouvons émettre plusieurs inférences concernant les axes représentés. En effet l'ACP permet de réduire un nombre important de dimensions (ici 11) en une représentation sur seulement quelques axes. Afin d'inférer sur la signification de ces axes nous allons nous aider des vecteurs fortements représentés par ces axes. L'axe 1 semble corrélé avec les variables d'acidité ainsi que les variables liées au dioxide souffre et à sa forme crystalisée, le sulfite. L'axe 2 se:ble quant à lui corrélé aux variables d'alcool et de density principalement
+
+## Quelques tests simples
+
+Après ces deux tests conséquents nous finirons sur des tests plus classiques.
+
+Premièrement nous pouvons nous poser la question de la différence entre les vins rouges et blancs. Pour ce qui était de la régression comme de l'ACP nous avons fait le choix de ne pas séparer les vins et de prendre les données dans leur ensemble. Cependant il existe des différences entre vins rouges et vins blancs qui sont peut-être visisble grâces aux paramètres physicochimiques étudiés.
+
+Mais avant de s'intéresser à ces paramètres physicochimiques, intéressons nous à notre variable dépendante.
+H0 : Il n'y a pas de différence dans la perception de la qualité des vins rouges et blancs.
+Ha : Il a une différence entre la qualité des vins rouges et blancs.
+
+```{r echo=TRUE}
+t.test(red_wines$quality, white_wines$quality)
+```
+
+Le test montre une différence significative (p-value < $2.2\cdot 10^{-16}$) entre la qualité des vins rouges et des vins blancs.
+
+Maintenant qu'en est-il des autres variables.
+
+```{r echo=TRUE}
+ttest_df <- data.frame(matrix(NA, nrow = 2, ncol = length(names(red_wines[-12]))))
+rownames(ttest_df) <- c("p-values", "t")
+colnames(ttest_df) <- names(red_wines[-12])
+for (parameter in names(red_wines[-12])){
+  ttest <- t.test(red_wines[parameter], white_wines[parameter])
+  ttest_df[parameter] <- c(format.pval(ttest$p.value, digit=5), round(as.numeric(ttest$statistic), digit=5))
+}
+print(ttest_df)
+```
+
+Tous nos tests sont significatifs (p-values < 0.05). Il convient cependant de noter que celui portant sur la teneur en alcool montre un résultat moins significatif que les autres tests. Les vins rouges et blancs sont donc différents concernant toutes ces variables. Nous pouvons donc remettre en question la pertinence d'avoir mener les deux test précédents (régression et ACP) sur les données combinées.
+
+Pour soutenir l'analyse de notre test T de Student nous ferons une analyse des variances.
+H0 : Il n'y a pas de différence dans les variances des différents paramètres entre vins rouges et blancs.
+Ha : Il a une différence dans les variances des différents paramètres entre vins rouges et blancs.
+
+```{r echo=TRUE}
+vartest_df <- data.frame(matrix(NA, nrow = 2, ncol = length(names(red_wines[-12]))))
+rownames(vartest_df) <- c("p-values", "F")
+colnames(vartest_df) <- names(red_wines[-12])
+for (parameter in names(red_wines[-12])){
+  vartest <- var.test(red_wines[,parameter], white_wines[,parameter])
+  vartest_df[parameter] <- c(format.pval(vartest$p.value, digit=5), round(as.numeric(vartest$statistic), digit=5))
+}
+print(vartest_df)
+```
+
+Les analyses de variance montrent des différences significatives (p-values < 0.05) entre les variances pour les différent paramètres entre vins rouges et blancs.
