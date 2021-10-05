@@ -1,6 +1,6 @@
 ---
 title: "Projet tuteuré - Analyse de données œnologiques"
-author: "Baptiste Rousseau"
+author: "-"
 date: "05/10/2021"
 output:
   html_document:
