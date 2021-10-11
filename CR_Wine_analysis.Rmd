@@ -20,6 +20,9 @@ output:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, warning=FALSE, eval=TRUE)
 
+library(magrittr)
+library(tidyr)
+library(dplyr)
 library(ggplot2)
 library(ggpubr)
 library(ordinal)
@@ -61,6 +64,8 @@ __teneur en alcool__ : Le pourcentage d'alcool du vin, directement lié au taux 
 __qualité__ : Un groupe d'œnologistes a gouté les différents vins et leur ont attribué une note entre 0 (très mauvais) et 10 (très bon).
 
 # Visualisation des données
+
+## Graphiques
 ```{r}
 red_wines <- read.csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv", sep = ";")
 white_wines <- read.csv("https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv", sep = ";")
@@ -70,46 +75,25 @@ all_wines <- rbind(data.frame(append(red_wines, c(wine.type = 'red'), after = 0)
 ```
 
 ```{r}
-hist_qual <- ggplot(all_wines) +
-               aes_string(x = "quality") +
-               geom_histogram(color = "black", fill = "grey", bins = 40L) +
-               theme_bw() +
-               facet_wrap(~ wine.type, scales = "free")
-boxplot_qual <- ggplot(all_wines) +
-                  aes_string(x = "quality") +
-                  geom_boxplot(color = "black", fill = "grey") +
-                  theme_bw() +
-                  facet_wrap(~ wine.type, scales = "free")
-ggarrange(hist_qual, boxplot_qual, ncol = 2, nrow = 1)
+all_wines %>%
+    select(-quality) %>%
+    tidyr::pivot_longer(-wine.type) %>%
+    ggplot(aes(x = value)) +
+    geom_histogram(color = "black", fill = "grey", bins = 40L) +
+    theme_bw() +
+    facet_wrap(. ~ name, scales = "free")
 
-hist_dens <- ggplot(all_wines) +
-               aes_string(x = "density") +
-               geom_histogram(color = "black", fill = "grey", bins = 40L) +
-               theme_bw() +
-               facet_wrap(~ wine.type, scales = "free")
-boxplot_dens <- ggplot(all_wines) +
-                  aes_string(x = "density") +
-                  geom_boxplot(color = "black", fill = "grey") +
-                  theme_bw() +
-                  facet_wrap(~ wine.type, scales = "free")
-ggarrange(hist_dens, boxplot_dens, ncol = 2, nrow = 1)
-
-hist_ph <- ggplot(all_wines) +
-               aes_string(x = "pH") +
-               geom_histogram(color = "black", fill = "grey", bins = 40L) +
-               theme_bw() +
-               facet_wrap(~ wine.type, scales = "free")
-boxplot_ph <- ggplot(all_wines) +
-                  aes_string(x = "pH") +
-                  geom_boxplot(color = "black", fill = "grey") +
-                  theme_bw() +
-                  facet_wrap(~ wine.type, scales = "free")
-ggarrange(hist_ph, boxplot_ph, ncol = 2, nrow = 1)
+all_wines %>%
+    select(-quality) %>%  
+    tidyr::pivot_longer(-wine.type) %>%
+    ggplot(aes(x = wine.type, y = value)) +
+    geom_boxplot(color = "black", fill = "grey") +
+    theme_bw() +
+    facet_wrap(. ~ name, scales = "free")
 ```
 
-
+## Résumés
 ```{r}
-
 summary_flavor=function(df){
     summary_df <- data.frame(matrix(NA, nrow = 4, ncol = length(df)))
     rownames(summary_df) <- c("moyenne", "1er quartile", "3eme quartile", "ecart type")
